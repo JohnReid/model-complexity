@@ -69,8 +69,8 @@ altair_viewer.display(chart_predictions)
 # Bias-variance trade-off
 bias_variance = (
     predictions
-    .assign(error2=lambda x: x.prediction - x.target)
-    .groupby(['sample_id', 'n', 'k'])['error2']
+    .assign(error=lambda x: x.prediction - x.target)
+    .groupby(['sample_id', 'n', 'k'])['error']
     .agg([np.mean, np.var])
     .rename(columns=dict(mean='bias', var='variance'))
     .assign(bias2=lambda x: x.bias**2)
@@ -96,7 +96,7 @@ k_bias_variance = (
     .groupby(['n', 'k'])
     .agg(np.mean)
     .reset_index()
-    .melt(id_vars=['n', 'k'], var_name='source', value_name='error2'))
+    .melt(id_vars=['n', 'k'], var_name='source', value_name='squared_error'))
 k_bias_variance
 
 # Show bias vs variance for different k
@@ -104,7 +104,7 @@ chart_k_bias_var = (
     alt.Chart(k_bias_variance)
     .mark_bar()
     .encode(alt.X('k:O'),
-            alt.Y('sum(error2)'),
+            alt.Y('sum(squared_error)'),
             color='source:N',
             column='n:O'))
 chart_k_bias_var.save('k-bias-variance.html')
