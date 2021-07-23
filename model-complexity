@@ -56,7 +56,7 @@ predictions.index.name = 'prediction_id'
 
 # Show predictions
 chart_predictions = (
-    alt.Chart(predictions.query('i < 5').sample(5000, random_state=bit_generator))
+    alt.Chart(predictions.query('i < 5').sample(5000, random_state=random_state))
     .mark_point()
     .encode(alt.X('target:Q', scale=alt.Scale(zero=False)),
             alt.Y('prediction:Q', scale=alt.Scale(zero=False)),
@@ -109,3 +109,26 @@ chart_k_bias_var = (
             column='n:O'))
 chart_k_bias_var.save('k-bias-variance.html')
 altair_viewer.display(chart_k_bias_var)
+
+# Examine a handful of random test samples
+test_samples = data.sample(3, random_state=random_state)
+test_bias_variance = (
+    bias_variance
+    .loc[test_samples.index]
+    .reset_index(level=['sample_id', 'n', 'k'])
+    .assign(total=lambda x: x.bias2 + x.variance)
+    .melt(id_vars=['sample_id', 'n', 'k'], var_name='source', value_name='squared_error'))
+test_bias_variance
+test_bias_variance.columns
+
+# Show test sample bias and variance for different k
+chart_test_samples = (
+    alt.Chart(test_bias_variance)
+    .mark_line()
+    .encode(alt.X('k:O'),
+            alt.Y('squared_error'),
+            color='source:N',
+            column='n:O',
+            row='sample_id:O'))
+chart_test_samples.save('test-bias-variance.html')
+altair_viewer.display(chart_test_samples)
