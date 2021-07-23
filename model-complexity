@@ -1,0 +1,111 @@
+#!/usr/bin/env python
+
+import numpy as np
+import pandas as pd
+import altair as alt
+import altair_viewer
+from sklearn import datasets
+from sklearn import neighbors
+from sklearn import model_selection as ms
+
+# Allow charts of long data frames
+alt.data_transformers.disable_max_rows()
+
+
+def dataset_as_df(dataset, rng):
+    """Convert an sklearn dataset to pandas."""
+    # Break any structure in the data by shuffling the rows
+    permutation = np.arange(len(dataset.data))
+    rng.shuffle(permutation)
+    data = pd.DataFrame(data=dataset.data[permutation], columns=dataset.feature_names)
+    data['target'] = dataset.target[permutation]
+    data.index.name = 'sample_id'
+    return data
+
+
+# Control randomness
+bit_generator = np.random.PCG64(seed=37)
+rng = np.random.default_rng(bit_generator)
+random_state = np.random.RandomState(bit_generator)
+
+# Load data
+dataset = datasets.load_boston()
+data = dataset_as_df(dataset, rng)
+
+# Make predictions
+predictions = []
+ns = [15, 101, 399]
+ks = [1, 3, 9] + ns
+n_bootstrap = 25
+for n in ns:
+    for k in ks:
+        if n < k:
+            continue
+        knn = neighbors.KNeighborsRegressor(n_neighbors=k)
+        for i in range(n_bootstrap):
+            train, test = ms.train_test_split(data, train_size=n, random_state=random_state)
+            knn.fit(X=train[dataset.feature_names], y=train['target'])
+            predictions.append(pd.DataFrame(dict(sample_id=test.index,
+                                                 n=n,
+                                                 k=k,
+                                                 i=i,
+                                                 target=test['target'],
+                                                 prediction=knn.predict(X=test[dataset.feature_names]))))
+predictions = pd.concat(predictions, ignore_index=True)
+predictions.index.name = 'prediction_id'
+
+# Show predictions
+chart_predictions = (
+    alt.Chart(predictions.query('i < 5').sample(5000, random_state=bit_generator))
+    .mark_point()
+    .encode(alt.X('target:Q', scale=alt.Scale(zero=False)),
+            alt.Y('prediction:Q', scale=alt.Scale(zero=False)),
+            color='i:N',
+            row=alt.Facet('k:O'),
+            column=alt.Facet('n:O')))
+chart_predictions.save('predictions.html')
+altair_viewer.display(chart_predictions)
+
+# Bias-variance trade-off
+bias_variance = (
+    predictions
+    .assign(error2=lambda x: x.prediction - x.target)
+    .groupby(['sample_id', 'n', 'k'])['error2']
+    .agg([np.mean, np.var])
+    .rename(columns=dict(mean='bias', var='variance'))
+    .assign(bias2=lambda x: x.bias**2)
+    .drop(columns='bias'))
+bias_variance['variance'].isna().any()
+bias_variance.xs(15, level='n')
+bias_variance.index
+
+# Show bias vs variance
+chart_bias_var = (
+    alt.Chart(bias_variance.reset_index(level=['n', 'k']))
+    .mark_point()
+    .encode(alt.X('bias2:Q', scale=alt.Scale(zero=False, type='sqrt')),
+            alt.Y('variance:Q', scale=alt.Scale(zero=False, type='sqrt')),
+            alt.Color('k:N'),
+            column='n:O'))
+chart_bias_var.save('bias-variance.html')
+altair_viewer.display(chart_bias_var)
+
+# Aggregate for different n and k
+k_bias_variance = (
+    bias_variance
+    .groupby(['n', 'k'])
+    .agg(np.mean)
+    .reset_index()
+    .melt(id_vars=['n', 'k'], var_name='source', value_name='error2'))
+k_bias_variance
+
+# Show bias vs variance for different k
+chart_k_bias_var = (
+    alt.Chart(k_bias_variance)
+    .mark_bar()
+    .encode(alt.X('k:O'),
+            alt.Y('sum(error2)'),
+            color='source:N',
+            column='n:O'))
+chart_k_bias_var.save('k-bias-variance.html')
+altair_viewer.display(chart_k_bias_var)
